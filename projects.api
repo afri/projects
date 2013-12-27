@@ -1,0 +1,58 @@
+@ = require('mho:std');
+
+var Projects = @Observable([
+/*  { name: "LOGS",
+    stints: [],
+    created: new Date("Thu Dec 26 2013 00:19:29 GMT+0100 (CET)")
+  },
+  { name: "Conductance",
+    stints: [],
+    created: new Date("Thu Dec 26 2013 00:19:29 GMT+0100 (CET)")
+  },
+  { name: "test project",
+    started: new Date("Thu Dec 26 2013 00:19:29 GMT+0100 (CET)"),
+    created: new Date("Thu Dec 26 2013 00:19:29 GMT+0100 (CET)"),
+
+    stints: [
+      { start: new Date("Thu Dec 26 2013 00:16:17 GMT+0100 (CET)"), 
+        end: new Date("Thu Dec 26 2013 00:19:13 GMT+0100 (CET)")
+      }
+    ]
+  }*/
+]);
+
+exports.Projects = Projects;
+
+function toggleProject(name) {
+  Projects.modify(function(projects) {
+    // check if there is an active project:
+    var active = projects .. @find({started} -> !!started);
+    if (active) {
+      var end = new Date();
+      if (end-active.started > 1000) // we only push a stint if it is longer than 1s
+        active.stints.push({start:active.started, end:end});
+      delete active.started;
+    }
+
+    if (!active || active.name !== name) {
+      // find project to start:
+      var to_start = projects .. @find(p -> p.name === name);
+      to_start.started = new Date();
+    }
+
+    return projects;
+  });
+}
+exports.toggleProject = toggleProject;
+
+function newProject(name) {
+  Projects.modify(function(projects) {
+    projects.push({
+      name:name,
+      created:new Date(),
+      stints:[]
+    })
+    return projects;
+  })
+}
+exports.newProject = newProject;
