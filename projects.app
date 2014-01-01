@@ -1,68 +1,10 @@
-@ = require(['mho:std', 'mho:app']);
-
-//----------------------------------------------------------------------
-// backfill
-
-@On = (html, ev, f) -> html .. @Mechanism(function(node) {
-  node .. @when(ev) {
-    |ev|
-    f(ev);
-  }
-});
-
-
-// Location Stream with observable semantics
-// XXX this is kinda hard to understand; would be nice to have an 'observe', 'toObservable', or 'decouple' function that converts a 'normal' stream to observable semantics. Or maybe we could even repurpose 'buffer' for this, by adding a flag ('overwrite' or something).
-var Location = @Stream(function(receiver) {
-
-  function parsedLocation() {
-    // see http://stackoverflow.com/questions/7338373/window-location-hash-issue-in-firefox for why we don't use window.location.hash
-    return (window.location.toString().split('#')[1]||'').split('/') .. 
-      @map(decodeURIComponent);
-  }
-
-  // we need the 'loc' intermediate observable here, because the
-  // receiver might block which would cause us to miss events if we
-  // did this in a single @when loop
-  var loc = @Observable(parsedLocation());
-  waitfor {
-    window .. @when('hashchange') {
-      |ev|
-      loc.set(parsedLocation());
-    }
-  }
-  or {
-    loc .. @each(receiver);
-  }
-});
-
-
-function route(container, routes) {
-  try {
-    Location .. @each {
-      |location|
-      if (location[0] === '') location[0] = '#';
-      var content = routes[location[0]];
-      if (!content) 
-        content = @Notice(`Invalid location '#${location .. @join('/')}'`, 
-                          {'class':'alert-danger'});
-      else 
-        content = content(location);
-      
-      container .. @replaceContent(content);
-    }
-  }
-  retract {
-    container .. @appendContent(
-      `<div style='position:absolute; top:0; left:0; width:100%;height:100%;background-color:rgba(0,0,0,.2);'></div>`);
-  }
-}
+@ = require(['mho:std', 'mho:app', './backfill']);
 
 
 //----------------------------------------------------------------------
-// data model
+// session
 
-var Model;
+var Session;
 
 //----------------------------------------------------------------------
 // presentation logic 
@@ -129,7 +71,7 @@ function ProjectsView() {
         (project.started ?
          @Button(@Icon('pause'),{'class':'btn-danger'})  :
          @Button(@Icon('play'), {'class':'btn-success'}) 
-        ) .. @On('click', -> Model.toggleProject(project.name))
+        ) .. @On('click', -> Session.toggleProject(project.name))
       }</td>
       </tr>`
   }
@@ -139,7 +81,7 @@ function ProjectsView() {
     @PageHeader('Projects')
   ];
 
-  rv.push(Model.Projects .. 
+  rv.push(Session.Projects .. 
           @transform(
             projects ->
               projects.length ?
@@ -158,7 +100,7 @@ function ProjectsView() {
 }
 
 function ProjectDetailsView([,name]) {
-  return Model.Projects .. @transform(function(projects) {
+  return Session.Projects .. @transform(function(projects) {
     var content = [@PageHeader("Project '#{name}'")];
     var project = projects .. @find(p -> p.name === name);
     
@@ -169,7 +111,7 @@ function ProjectDetailsView([,name]) {
         content.push(
           `<h2>Session running
            ${@Button(@Icon('pause'), {'class': 'btn-danger pull-right'}) .. 
-             @On('click', -> Model.toggleProject(project.name))}
+             @On('click', -> Session.toggleProject(project.name))}
            </h2>
            <p>Current Session started ${project.started}</p>
            <p>Session Time: ${calcTime(project, true) .. @transform(formatTime)}</p>
@@ -180,7 +122,7 @@ function ProjectDetailsView([,name]) {
         content.push(
           `<h2>&nbsp;
              ${@Button(@Icon('play'), {'class': 'btn-success pull-right'}) .. 
-               @On('click', -> Model.toggleProject(project.name))}        
+               @On('click', -> Session.toggleProject(project.name))}        
            </h2>`);
       }
 
@@ -210,7 +152,7 @@ function ProjectDetailsView([,name]) {
 function NewProjectView() {
 
   var Name = @Observable('');
-  var NameValid = @Computed(Model.Projects, Name, 
+  var NameValid = @Computed(Session.Projects, Name, 
                             (projects, name) -> 
                             name.length &&
                             projects .. @all(p -> p.name != name));
@@ -224,7 +166,7 @@ function NewProjectView() {
   function submit() {
     var name = Name.get();
 
-    Model.newProject(name);
+    Session.newProject(name);
     //document.location = "#project/#{name .. encodeURIComponent}";
     document.location = '#';
   }
@@ -250,14 +192,158 @@ function NewProjectView() {
   ` 
 }
 
+//----------------------------------------------------------------------
+
+// We never store or send across the wire the user's cleartext
+// password, but a hash derived from the password. Note that this is
+// just a complementary security measure to prevent any casual
+// inspection of a password that the user might use elsewhere. A
+// proper salted password will be derived from this on the server:
+function derivePassword(cleartext) {
+  var sjcl = require('sjs:sjcl');
+  return sjcl.codec.base64.fromBits(sjcl.hash.sha256.hash("Conductance-Projects-#{cleartext}"), true);
+}
+
+function signIn(api) {
+  @ModalDialog(
+    `<div>
+       <div class='form-group'>
+         <input type='text' class='form-control' id='username' placeholder='Username'>
+       </div>
+       <div class='form-group'>
+         <input type='password' class='form-control' id='pw' placeholder='Password'>
+       </div>
+       <div class='checkbox'>
+         <label>
+           <input type='checkbox' id='remember'> Remember me
+         </label>
+       </div>
+       <button class='btn btn-default' id='signin'>Sign in</button>
+     </div>
+     ` ..
+      @Style(" 
+        .form-group input[type=text]    { width: 20em } 
+        .form-group input[type=password] { width: 10em }
+       ")
+
+  ) {
+    |form|
+    while (true) {
+      form.querySelector('#username').focus();
+      form.querySelector('button') .. @wait('click');
+      try {
+        var username = form.querySelector('#username').value;
+        var password = derivePassword(form.querySelector('#pw').value);
+        var session = api.authenticate(username, password);
+        // we've got a session; bail out of `while` loop
+        // but first store the username/password in local storage, if so requested:
+        if(form.querySelector('#remember').checked) {
+          localStorage['user'] = username;
+          localStorage['pw'] = password;
+        } 
+        return session; 
+      }
+      catch (e) {
+        // XXX
+        console.log(e);
+        // go round loop again
+      }
+    }
+  }
+
+  // the user aborted
+  return null;
+}
+
+function createAccount(api) {
+
+  var Username = @Observable(''), Password1 = @Observable(''), Password2 = @Observable('');
+
+  var NameValid = Username .. @ObservableStream(name -> (hold(200), api.checkNameValid(name)));
+  var PasswordValid =  Password1 .. @transform(x -> x.length >= 8);
+  var PasswordsMatch = @Computed(Password1, Password2, (p1,p2) -> p1 === p2);
+  var Valid = @Computed(NameValid, PasswordValid, PasswordsMatch, (a,b,c) -> (a&&b&&c));
+
+
+  @ModalDialog(
+    `<h2>Create Account</h2>
+     ${  @TextInput(Username) .. 
+           @Attrib('placeholder', 'Username') .. 
+           @Focus() ..
+           @Validate(NameValid)
+      }
+
+     ${  @Input('password', Password1, {placeholder:'Password'}) .. 
+           @Validate(PasswordValid)
+      }
+     ${  @Input('password', Password2, {placeholder:'Repeat Password'}) ..
+           @Validate(PasswordsMatch)
+      }
+     ${  @ButtonDefault('Create account') .. 
+           @Id('create') ..
+           @Enable(Valid)
+      }
+    `
+  ) {
+    |dialog|
+    dialog.querySelector('#create') .. @when('click') {
+      |ev|
+      var session = api.createAccount(Username.get(), Password1.get() .. derivePassword);
+      if (session) return session;
+    }
+  }
+  return null;
+}
+
+function getSession(api) {
+
+  // first we try to authenticate with our stored user
+  // details:
+  var { user, pw } = localStorage;
+  if (user && pw) {
+    try {
+      return api.authenticate(user, pw);
+    }
+    catch(e) { /* silently ignore authentication error */ }
+    // authentication failed; remove stored details:
+    delete localStorage['user'];
+    delete localStorage['pw'];
+  }
+
+  // let the user pick between signing up for a new account and logging in:
+  var command;
+  @mainContent .. @appendContent(@Div([
+    @PageHeader("Conductance Timetracking Demo") .. @Class('text-center'),
+    @Row([@ColSm(4), @ColSm(4, @ButtonPrimary('Sign In') .. 
+                                 @Class('btn-block') .. 
+                                 @Id('signin'))]) .. @P,
+    @Row([@ColSm(4), @ColSm(4, @ButtonPrimary('Create New Account') .. 
+                                 @Class('btn-block') .. 
+                                 @Id('new'))]) .. @P
+  ])) {
+    |ui|
+    ui.querySelectorAll('button') .. @when('click') {
+      |{target:{id:command}}|
+
+      var session;
+      if (command === 'new') {
+        session = createAccount(api);
+      }
+      else if (command === 'signin') {
+        session = signIn(api);
+      }
+      if (session) return session;
+    }
+  }
+}
 
 //----------------------------------------------------------------------
 // main program
 
 @withAPI('./projects.api') {
   |api|
-  Model = api;
-  route(@mainContent, {
+  Session = getSession(api);
+  @route(@mainContent, {
     '#': ProjectsView,
     'project': ProjectDetailsView,
     'new-project': NewProjectView

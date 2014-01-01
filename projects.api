@@ -1,58 +1,72 @@
 @ = require('mho:std');
 
-var Projects = @Observable([
-/*  { name: "LOGS",
-    stints: [],
-    created: new Date("Thu Dec 26 2013 00:19:29 GMT+0100 (CET)")
-  },
-  { name: "Conductance",
-    stints: [],
-    created: new Date("Thu Dec 26 2013 00:19:29 GMT+0100 (CET)")
-  },
-  { name: "test project",
-    started: new Date("Thu Dec 26 2013 00:19:29 GMT+0100 (CET)"),
-    created: new Date("Thu Dec 26 2013 00:19:29 GMT+0100 (CET)"),
+var data = {};
 
-    stints: [
-      { start: new Date("Thu Dec 26 2013 00:16:17 GMT+0100 (CET)"), 
-        end: new Date("Thu Dec 26 2013 00:19:13 GMT+0100 (CET)")
+exports.checkNameValid = function(name) {
+  if (name.length < 3) return false;
+  if (data['user'+name]) 
+    return false;
+  else
+    return true;
+}
+
+exports.createAccount = function(username, password) {
+  if (!exports.checkNameValid(username)) return null;
+  
+  data['user'+username] = {
+    pw: password, // XXX we should use a random salt and something like PBKDF2-HMAC-SHA256 
+    projects: @Observable([])
+  };
+
+  return exports.authenticate(username, password);
+}
+
+exports.authenticate = function(username, password) {
+
+  var record = data['user'+username];
+  if (!record) throw 'User not found';
+  if (record.pw !== password) throw 'Invalid Password';
+
+  var Projects = record.projects;
+
+  function toggleProject(name) {
+    Projects.modify(function(projects) {
+      // check if there is an active project:
+      var active = projects .. @find({started} -> !!started);
+      if (active) {
+        var end = new Date();
+        if (end-active.started > 1000) // we only push a stint if it is longer than 1s
+          active.stints.push({start:active.started, end:end});
+        delete active.started;
       }
-    ]
-  }*/
-]);
+      
+      if (!active || active.name !== name) {
+        // find project to start:
+        var to_start = projects .. @find(p -> p.name === name);
+        to_start.started = new Date();
+      }
+      
+      return projects;
+    });
+  }
 
-exports.Projects = Projects;
-
-function toggleProject(name) {
-  Projects.modify(function(projects) {
-    // check if there is an active project:
-    var active = projects .. @find({started} -> !!started);
-    if (active) {
-      var end = new Date();
-      if (end-active.started > 1000) // we only push a stint if it is longer than 1s
-        active.stints.push({start:active.started, end:end});
-      delete active.started;
-    }
-
-    if (!active || active.name !== name) {
-      // find project to start:
-      var to_start = projects .. @find(p -> p.name === name);
-      to_start.started = new Date();
-    }
-
-    return projects;
-  });
-}
-exports.toggleProject = toggleProject;
-
-function newProject(name) {
-  Projects.modify(function(projects) {
-    projects.push({
-      name:name,
-      created:new Date(),
-      stints:[]
+  function newProject(name) {
+    Projects.modify(function(projects) {
+      projects.push({
+        name:name,
+        created:new Date(),
+        stints:[]
+      })
+      return projects;
     })
-    return projects;
-  })
-}
-exports.newProject = newProject;
+  }
+  
+  return {
+    newProject: newProject,
+    toggleProject: toggleProject,
+    // the `transform` converts Projects from an observable object to just
+    // an observable stream; we don't want clients to manipulate this
+    // directly:
+    Projects: Projects .. @transform(x->x)
+  };
+};
