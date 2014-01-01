@@ -342,10 +342,42 @@ function getSession(api) {
 
 @withAPI('./projects.api') {
   |api|
-  Session = getSession(api);
-  @route(@mainContent, {
-    '#': ProjectsView,
-    'project': ProjectDetailsView,
-    'new-project': NewProjectView
-  });
+  while (1) {
+    Session = getSession(api);
+    document.body .. @prependContent(
+      `<nav class='navbar navbar-default navbar-fixed-top'>
+        <div class='navbar-header'>
+        <button type='button' class='navbar-toggle' data-toggle='collapse' data-target='#navbar1'>
+        <span class="sr-only">Toggle navigation</span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        </button>
+        <a class='navbar-brand' href='#'>&#8487; Projects</a>
+        </div>
+        <div class='collapse navbar-collapse' id='navbar1'>
+        <ul class='nav navbar-nav navbar-right'>
+        <li>${
+          @ButtonLink('Sign out') .. 
+            @Class('navbar-btn') ..
+            @Id('sign-out')
+        }
+         </li>
+        </ul>
+        </div>
+        </nav>` .. @Style("@global { body { padding-top: 70px; } }")
+    ) {
+      |navbar|
+      waitfor {
+        @route(@mainContent, {
+          '#': ProjectsView,
+          'project': ProjectDetailsView,
+          'new-project': NewProjectView
+        });
+      }
+      or {
+        navbar.querySelector('#sign-out') .. @wait('click');
+      }
+    }
+  }
 }
