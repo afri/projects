@@ -377,6 +377,8 @@ function getSession(api) {
       }
       or {
         navbar.querySelector('#sign-out') .. @wait('click');
+        delete localStorage['user'];
+        delete localStorage['pw'];
       }
     }
   }
