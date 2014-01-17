@@ -151,14 +151,14 @@ function ProjectDetailsView([,name]) {
 
 function NewProjectView() {
 
-  var Name = @Observable('');
-  var NameValid = @Computed(Session.Projects, Name, 
+  var Name = @ObservableVar('');
+  var NameValid = @observe(Session.Projects, Name, 
                             (projects, name) -> 
                             name.length &&
                             projects .. @all(p -> p.name != name));
 
   // only mark the name as invalid if has a length
-  var NameInvalid = @Computed(NameValid, Name, (v, name) -> !v && name.length);
+  var NameInvalid = @observe(NameValid, Name, (v, name) -> !v && name.length);
 
   var Valid = NameValid;
   var Invalid = Valid .. @transform(v -> !v);
@@ -206,7 +206,8 @@ function derivePassword(cleartext) {
 
 function signIn(api) {
   @ModalDialog(
-    `<div>
+    @Div(`
+       <h2>Sign in</h2>
        <div class='form-group'>
          <input type='text' class='form-control' id='username' placeholder='Username'>
        </div>
@@ -219,11 +220,11 @@ function signIn(api) {
          </label>
        </div>
        <button class='btn btn-default' id='signin'>Sign in</button>
-     </div>
-     ` ..
+     `) ..
       @Style(" 
         .form-group input[type=text]    { width: 20em } 
         .form-group input[type=password] { width: 10em }
+        { margin:20px; }
        ")
 
   ) {
@@ -257,33 +258,41 @@ function signIn(api) {
 
 function createAccount(api) {
 
-  var Username = @Observable(''), Password1 = @Observable(''), Password2 = @Observable('');
+  var Username = @ObservableVar(''), Password1 = @ObservableVar(''), Password2 = @ObservableVar('');
 
-  var NameValid = Username .. @ObservableStream(name -> (hold(200), api.checkNameValid(name)));
+  var NameValid = Username .. @observe(name -> (hold(200), api.checkNameValid(name)));
   var PasswordValid =  Password1 .. @transform(x -> x.length >= 8);
-  var PasswordsMatch = @Computed(Password1, Password2, (p1,p2) -> p1 === p2);
-  var Valid = @Computed(NameValid, PasswordValid, PasswordsMatch, (a,b,c) -> (a&&b&&c));
+  var PasswordsMatch = @observe(Password1, Password2, (p1,p2) -> p1 === p2);
+  var Valid = @observe(NameValid, PasswordValid, PasswordsMatch, (a,b,c) -> (a&&b&&c));
 
 
   @ModalDialog(
-    `<h2>Create Account</h2>
-     ${  @TextInput(Username) .. 
-           @Attrib('placeholder', 'Username') .. 
-           @Focus() ..
-           @Validate(NameValid)
-      }
-
-     ${  @Input('password', Password1, {placeholder:'Password'}) .. 
-           @Validate(PasswordValid)
-      }
-     ${  @Input('password', Password2, {placeholder:'Repeat Password'}) ..
-           @Validate(PasswordsMatch)
-      }
-     ${  @ButtonDefault('Create account') .. 
-           @Id('create') ..
-           @Enable(Valid)
-      }
     `
+     <h2>Create Account</h2>
+     <div>
+       ${  @TextInput(Username) .. 
+             @Attrib('placeholder', 'Username') .. 
+             @Focus() ..
+             @Validate(NameValid)
+        }
+     </div>
+     <div>
+       ${  @Input('password', Password1, {placeholder:'Password'}) .. 
+             @Validate(PasswordValid)
+        }
+     </div>
+     <div>
+       ${  @Input('password', Password2, {placeholder:'Repeat Password'}) ..
+             @Validate(PasswordsMatch)
+        }
+     </div>
+     <div>
+       ${  @ButtonDefault('Create account') .. 
+             @Id('create') ..
+             @Enable(Valid)
+        }
+     </div>
+    ` .. @Style("div, h2 { margin:20px }")
   ) {
     |dialog|
     dialog.querySelector('#create') .. @when('click') {

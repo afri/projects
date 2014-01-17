@@ -2,6 +2,7 @@
 
 //----------------------------------------------------------------------
 // backfill
+// THIS WILL BE FOLDED INTO THE CONDUCTANCE LIB AT SOME POINT
 
 //----------------------------------------------------------------------
 
@@ -27,7 +28,7 @@ var Location = @Stream(function(receiver) {
   // we need the 'loc' intermediate observable here, because the
   // receiver might block which would cause us to miss events if we
   // did this in a single @when loop
-  var loc = @Observable(parsedLocation());
+  var loc = @ObservableVar(parsedLocation());
   waitfor {
     window .. @when('hashchange') {
       |ev|
@@ -102,6 +103,8 @@ function ModalDialog(content, options, block) {
 }
 exports.ModalDialog = ModalDialog;
 
+exports.CloseButton = `<button type="button" class="close" data-dismiss="modal">&times;</button>`;
+
 //----------------------------------------------------------------------
 //
 ['default', 'primary', 'success', 'info', 'warning', 'danger', 'link'] ..
@@ -120,44 +123,6 @@ function focus(node) {
   node.focus();
 }
 exports.Focus = html -> @Mechanism(html, focus);
-
-//----------------------------------------------------------------------
-  // XXX not quite correct; needs to wait until final value emitted
-  // XXX this should be folded into @Computed
-  /*
-     Observable -> ObservableVar
-
-     Computed -> ObservableStream
-
-     ObservableTuple -> *remove*
-   */
- exports.ObservableStream = function(upstream, f) {
-    return @Stream(function(downstream) {
-      var change = @Emitter();
-      var current_val;
-      var current_rev = 0, rev = 0;
-      var version = 0;
-      waitfor {
-        while (true) {
-          change.wait();
-          while (current_rev != rev) {
-            waitfor {
-              change.wait();
-            }
-            or {
-              current_rev = rev;
-              var f_val = f(current_val);
-              collapse; // don't interrupt downstream call
-              downstream(f_val);
-            }
-          }
-        }
-      }
-      or {
-        upstream .. @each { |x| ++rev; current_val = x; change.emit(); }
-      }
-    });
-  }
 
 //----------------------------------------------------------------------
 

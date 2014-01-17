@@ -15,7 +15,7 @@ exports.createAccount = function(username, password) {
   
   data['user'+username] = {
     pw: password, // XXX we should use a random salt and something like PBKDF2-HMAC-SHA256 
-    projects: @Observable([])
+    projects: @ObservableVar([])
   };
 
   return exports.authenticate(username, password);
